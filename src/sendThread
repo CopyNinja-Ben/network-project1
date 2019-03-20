@@ -1,0 +1,88 @@
+import java.io.*;
+import java.net.Socket;
+import java.util.HashMap;
+import java.util.Map;
+
+// send beNeighbor_Request
+public class sendThread extends Thread {
+    private Socket socket;
+    private Router1 r1;
+    private String r;
+    private int lc;
+
+    public sendThread(Socket socket, Router1 r1,String r, int lc){
+        this.socket = socket;
+        this.r1 = r1;
+        this.r = r;
+        this.lc = lc;
+    }
+
+    public void run(){
+        try {
+            // connect to server
+            this.r1.sendLock.acquire();
+            ObjectOutputStream output = new ObjectOutputStream(socket.getOutputStream());
+            ObjectInputStream input = new ObjectInputStream(socket.getInputStream());
+
+            Message message = new Message("beNeighborRequest",this.r1.protocolVersion,this.r1.updateInterval,this.r1.aliveInterval);
+            output.writeObject(message);
+
+            Message reponse = (Message) input.readObject();
+            if(reponse.getTitle().equals("beNeighborConfirm")){
+                Message ack = new Message("ACK");
+                output.writeObject(ack);
+                output.flush();
+                socket.close();
+
+                // save its link cost information in a file
+                File linkCost = new File("linkCost.txt");
+                try {
+                    if(!linkCost.exists()){
+                        linkCost.createNewFile();
+                        HashMap<String, Map<String,Integer>> map = new HashMap<>();
+                        FileOutputStream outputStream = new FileOutputStream("linkCost.txt");
+                        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+                        objectOutputStream.writeObject(map);
+                        outputStream.close();
+                    }
+
+                        FileInputStream fis = new FileInputStream("linkCost.txt");
+                        ObjectInputStream ois = new ObjectInputStream(fis);
+
+                        HashMap<String, Map<String,Integer>> map = (HashMap<String,Map<String,Integer>>) ois.readObject();
+                        if(!map.containsKey("R1")){
+                            Map<String,Integer> tempMap = new HashMap<>();
+                            tempMap.put(r,lc);
+                            map.put("R1", tempMap);
+                        }
+                        else{
+                            Map<String,Integer> tempMap = map.get("R1");
+                            tempMap.put(r,lc);
+                            map.put("R1", tempMap);
+                        }
+                        FileOutputStream outputStream = new FileOutputStream("linkCost.txt");
+                        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+                        objectOutputStream.writeObject(map);
+                        outputStream.close();
+                        objectOutputStream.close();
+
+                        fis.close();
+                        ois.close();
+
+                }
+                catch (Exception e){
+                    System.out.println(e.getMessage());
+                    return;
+                }
+            }
+            else if(reponse.getTitle().equals("Conflict")){
+                socket.close();
+            }
+            this.r1.sendLock.release();
+        }
+        catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace(System.err);
+        }
+    }
+}
